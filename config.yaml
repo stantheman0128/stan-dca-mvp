@@ -1,0 +1,118 @@
+# DCA Backtest Tool Configuration
+
+# Supported Markets
+markets:
+  us_stocks:
+    SPY:
+      name: "S&P 500"
+      currency: "USD"
+    QQQ:
+      name: "Nasdaq 100"
+      currency: "USD"
+    DIA:
+      name: "Dow Jones"
+      currency: "USD"
+    IWM:
+      name: "Russell 2000"
+      currency: "USD"
+  
+  tw_stocks:
+    "0050.TW":
+      name: "元大台灣50"
+      currency: "TWD"
+    "0056.TW":
+      name: "元大高股息"
+      currency: "TWD"
+    "^TWII":
+      name: "台灣加權指數"
+      currency: "TWD"
+  
+  international:
+    "^N225":
+      name: "日經225"
+      currency: "JPY"
+    "^FTSE":
+      name: "英國富時100"
+      currency: "GBP"
+    "^GDAXI":
+      name: "德國DAX"
+      currency: "EUR"
+
+# Default Parameters
+defaults:
+  start_date: "2005-12-23"
+  end_date: "2025-12-23"
+  frequency: "M"  # W=Weekly, M=Monthly, Q=Quarterly
+  investment_amount: 1000
+  risk_free_rate: 0.02
+
+# Strategy Default Parameters
+strategy_params:
+  dca_pure:
+    # No additional params
+    
+  dca_dip_buying:
+    lookback_period: 252  # Trading days (1 year)
+    dip_threshold_1: 0.10  # 10%
+    multiplier_1: 1.5
+    dip_threshold_2: 0.20  # 20%
+    multiplier_2: 2.0
+    
+  dca_trend_filter:
+    ma_period: 200
+    ma_type: "SMA"  # SMA or EMA
+    above_multiplier: 1.0
+    below_multiplier: 1.5
+    
+  dca_volatility:
+    volatility_window: 20
+    lookback_period: 252
+    high_vol_threshold: 1.5
+    low_vol_threshold: 0.8
+    high_vol_multiplier: 1.5
+    low_vol_multiplier: 0.8
+    
+  dca_profit_taking:
+    profit_threshold: 0.30  # 30%
+    sell_percentage: 0.30  # 30%
+
+# Data Cache Settings
+cache:
+  enabled: true
+  directory: "data/cache"
+  max_age_days: 1  # Refresh data if older than 1 day
+
+# Monte Carlo Settings
+monte_carlo:
+  num_simulations: 300
+  min_duration_years: 3
+  max_duration_years: 20
+  num_workers: 8
+
+# Major Financial Events for Chart Annotations
+financial_events:
+  - date: "2008-09-15"
+    name: "雷曼兄弟倒閉"
+  - date: "2008-10-10"
+    name: "金融海嘯谷底"
+  - date: "2011-08-05"
+    name: "美債降級"
+  - date: "2015-08-24"
+    name: "中國股災"
+  - date: "2016-06-23"
+    name: "英國脫歐"
+  - date: "2020-03-23"
+    name: "疫情恐慌谷底"
+  - date: "2022-02-24"
+    name: "俄烏戰爭"
+  - date: "2022-06-16"
+    name: "Fed激進升息"
+
+# Fixed Test Start Points
+robustness_test_dates:
+  - "2005-12-23"  # Full 20 years
+  - "2008-01-01"  # Before financial crisis
+  - "2009-03-01"  # Post crisis bottom
+  - "2015-01-01"  # Mid-term
+  - "2020-01-01"  # Before pandemic
+  - "2020-04-01"  # Post pandemic crash
