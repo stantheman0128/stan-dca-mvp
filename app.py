@@ -18,6 +18,8 @@ from core.data_loader import DataLoader
 from core.backtest_engine import BacktestEngine, BacktestResult
 from core.visualizer import Visualizer
 from core.statistics import StatisticalAnalyzer
+from core.robustness import RobustnessAnalyzer
+from core.sensitivity import SensitivityAnalyzer
 from strategies import (
     DCAPureStrategy,
     DCADipBuyingStrategy,
@@ -26,6 +28,8 @@ from strategies import (
     DCAProfitTakingStrategy,
 )
 from utils.report_generator import ReportGenerator
+import plotly.graph_objects as go
+import plotly.express as px
 
 # ================== Page Configuration ==================
 
@@ -432,6 +436,280 @@ def display_results(results: List[BacktestResult], currency: str):
             )
 
 
+# ================== P2 Features ==================
+
+def render_robustness_tests(config: Dict[str, Any]):
+    """Render robustness testing section."""
+    st.header("🔬 穩健性測試")
+    
+    available_strategies = get_available_strategies()
+    
+    # Strategy selection for robustness test
+    strategy_name = st.selectbox(
+        "選擇要測試的策略",
+        options=list(available_strategies.keys()),
+        key="robustness_strategy"
+    )
+    
+    strategy_class = available_strategies[strategy_name]
+    strategy = strategy_class()
+    
+    # Test type selection
+    test_type = st.radio(
+        "測試類型",
+        options=["固定起始點測試", "Monte Carlo 模擬", "滾動窗口分析"],
+        horizontal=True
+    )
+    
+    data_loader = DataLoader()
+    
+    if st.button("🔬 執行穩健性測試", type="primary"):
+        with st.spinner("正在下載數據..."):
+            data = data_loader.download_data(
+                config['symbol'],
+                start_date="2005-01-01",
+                end_date=str(date.today())
+            )
+        
+        if data is None or data.empty:
+            st.error("數據下載失敗")
+            return
+        
+        analyzer = RobustnessAnalyzer()
+        
+        if test_type == "固定起始點測試":
+            st.info("使用預設的 6 個起始時間點進行測試...")
+            progress = st.progress(0)
+            
+            def update_progress(current, total):
+                progress.progress(current / total)
+            
+            results_df = analyzer.test_fixed_start_points(
+                strategy=strategy,
+                market_data=data,
+                frequency=config['frequency'],
+                base_investment=config['investment'],
+                progress_callback=update_progress
+            )
+            
+            st.subheader("📊 不同起始點測試結果")
+            st.dataframe(results_df, use_container_width=True)
+            
+            # Chart
+            fig = go.Figure()
+            fig.add_trace(go.Bar(
+                x=results_df['start_date'],
+                y=results_df['total_return'],
+                marker_color=['green' if r > 0 else 'red' for r in results_df['total_return']],
+                text=[f"{r:.1f}%" for r in results_df['total_return']],
+                textposition='outside'
+            ))
+            fig.update_layout(
+                title="不同起始點的總報酬率",
+                xaxis_title="起始日期",
+                yaxis_title="總報酬率 (%)",
+                height=400
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+        elif test_type == "Monte Carlo 模擬":
+            num_sims = st.slider("模擬次數", 50, 500, 200, step=50)
+            
+            st.info(f"執行 {num_sims} 次隨機起始點模擬...")
+            progress = st.progress(0)
+            
+            def update_progress(current, total):
+                progress.progress(current / total)
+            
+            stats = analyzer.monte_carlo_simulation(
+                strategy=strategy,
+                market_data=data,
+                num_simulations=num_sims,
+                min_duration_years=3,
+                max_duration_years=15,
+                frequency=config['frequency'],
+                base_investment=config['investment'],
+                num_workers=4,
+                progress_callback=update_progress
+            )
+            
+            if 'error' not in stats:
+                st.subheader("📊 Monte Carlo 模擬結果")
+                
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("平均報酬率", f"{stats['returns']['mean']:.1f}%")
+                with col2:
+                    st.metric("中位數報酬", f"{stats['returns']['median']:.1f}%")
+                with col3:
+                    st.metric("勝率", f"{stats['win_rate']:.1f}%")
+                with col4:
+                    st.metric("平均最大回撤", f"{stats['max_drawdown']['mean']:.1f}%")
+                
+                st.write(f"**95% 信心區間**: {stats['returns']['percentile_5']:.1f}% ~ {stats['returns']['percentile_95']:.1f}%")
+                
+                # Distribution chart
+                raw_df = stats['raw_results']
+                fig = px.histogram(
+                    raw_df, x='total_return',
+                    nbins=30,
+                    title="報酬率分佈",
+                    labels={'total_return': '總報酬率 (%)'}
+                )
+                fig.add_vline(x=0, line_dash="dash", line_color="red")
+                fig.add_vline(x=stats['returns']['mean'], line_dash="dash", line_color="green",
+                             annotation_text=f"平均: {stats['returns']['mean']:.1f}%")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.error("模擬失敗")
+                
+        elif test_type == "滾動窗口分析":
+            window_years = st.slider("窗口大小 (年)", 1, 10, 3)
+            
+            st.info(f"使用 {window_years} 年滾動窗口分析...")
+            progress = st.progress(0)
+            
+            def update_progress(current, total):
+                progress.progress(current / total)
+            
+            results_df = analyzer.rolling_window_analysis(
+                strategy=strategy,
+                market_data=data,
+                window_years=window_years,
+                step_months=3,
+                frequency=config['frequency'],
+                base_investment=config['investment'],
+                progress_callback=update_progress
+            )
+            
+            st.subheader("📊 滾動窗口分析結果")
+            
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(
+                x=pd.to_datetime(results_df['window_start']),
+                y=results_df['total_return'],
+                mode='lines',
+                name='總報酬率',
+                fill='tozeroy'
+            ))
+            fig.add_hline(y=0, line_dash="dash", line_color="gray")
+            fig.update_layout(
+                title=f"{window_years} 年滾動窗口報酬率",
+                xaxis_title="窗口起始日期",
+                yaxis_title="報酬率 (%)",
+                height=400
+            )
+            st.plotly_chart(fig, use_container_width=True)
+            
+            st.write(f"**統計摘要**: 平均報酬率 {results_df['total_return'].mean():.1f}%, "
+                    f"標準差 {results_df['total_return'].std():.1f}%, "
+                    f"最佳 {results_df['total_return'].max():.1f}%, "
+                    f"最差 {results_df['total_return'].min():.1f}%")
+
+
+def render_sensitivity_analysis(config: Dict[str, Any]):
+    """Render parameter sensitivity analysis section."""
+    st.header("📈 參數敏感度分析")
+    
+    available_strategies = get_available_strategies()
+    
+    # Only strategies with parameters
+    param_strategies = {k: v for k, v in available_strategies.items() 
+                       if v().get_param_info()}
+    
+    if not param_strategies:
+        st.info("沒有可調整參數的策略")
+        return
+    
+    strategy_name = st.selectbox(
+        "選擇策略",
+        options=list(param_strategies.keys()),
+        key="sensitivity_strategy"
+    )
+    
+    strategy_class = param_strategies[strategy_name]
+    strategy = strategy_class()
+    param_info = strategy.get_param_info()
+    
+    # Parameter selection
+    param_options = [p['name'] for p in param_info]
+    param_labels = {p['name']: p['label'] for p in param_info}
+    
+    selected_param = st.selectbox(
+        "選擇要分析的參數",
+        options=param_options,
+        format_func=lambda x: param_labels[x]
+    )
+    
+    # Get param details
+    param_detail = next(p for p in param_info if p['name'] == selected_param)
+    
+    # Value range
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        min_val = st.number_input("最小值", value=float(param_detail.get('min', 0)))
+    with col2:
+        max_val = st.number_input("最大值", value=float(param_detail.get('max', 10)))
+    with col3:
+        steps = st.number_input("測試點數", value=10, min_value=3, max_value=20)
+    
+    if st.button("📈 執行敏感度分析", type="primary"):
+        data_loader = DataLoader()
+        
+        with st.spinner("正在下載數據..."):
+            data = data_loader.download_data(
+                config['symbol'],
+                start_date=str(config['start_date']),
+                end_date=str(config['end_date'])
+            )
+        
+        if data is None:
+            st.error("數據下載失敗")
+            return
+        
+        # Generate test values
+        if param_detail['type'] == 'int':
+            test_values = [int(v) for v in range(int(min_val), int(max_val) + 1, 
+                                                 max(1, int((max_val - min_val) / steps)))]
+        else:
+            import numpy as np
+            test_values = list(np.linspace(min_val, max_val, int(steps)))
+        
+        analyzer = SensitivityAnalyzer()
+        progress = st.progress(0)
+        
+        def update_progress(current, total):
+            progress.progress(current / total)
+        
+        results_df = analyzer.single_param_sweep(
+            strategy_class=strategy_class,
+            param_name=selected_param,
+            param_values=test_values,
+            market_data=data,
+            frequency=config['frequency'],
+            base_investment=config['investment'],
+            progress_callback=update_progress
+        )
+        
+        st.subheader("📊 敏感度分析結果")
+        
+        # Find optimal
+        if 'sharpe_ratio' in results_df.columns:
+            best_idx = results_df['sharpe_ratio'].idxmax()
+            if pd.notna(best_idx):
+                best_value = results_df.loc[best_idx, selected_param]
+                st.success(f"✨ 最佳 {param_labels[selected_param]}: **{best_value}** (夏普比率最高)")
+        
+        # Charts
+        fig = SensitivityAnalyzer.plot_single_param_sensitivity(
+            results_df, selected_param,
+            metrics=['total_return', 'sharpe_ratio', 'max_drawdown']
+        )
+        st.plotly_chart(fig, use_container_width=True)
+        
+        st.dataframe(results_df, use_container_width=True)
+
+
 # ================== Main App ==================
 
 def main():
@@ -443,36 +721,48 @@ def main():
     # Sidebar configuration
     config = render_sidebar()
     
-    # Main content area
-    st.markdown("---")
+    # Store config in session state for other tabs
+    st.session_state['config'] = config
     
-    # Info display
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.info(f"📍 標的: **{config['selected_market']}**")
-    with col2:
-        st.info(f"📅 期間: **{config['start_date']} ~ {config['end_date']}**")
-    with col3:
-        st.info(f"💰 每期投入: **{config['currency']} {config['investment']:,}**")
+    # Main tabs
+    tab_main, tab_robustness, tab_sensitivity = st.tabs([
+        "🎯 基本回測", "🔬 穩健性測試", "📈 參數敏感度"
+    ])
     
-    # Run button
-    st.markdown("---")
+    with tab_main:
+        # Info display
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.info(f"📍 標的: **{config['selected_market']}**")
+        with col2:
+            st.info(f"📅 期間: **{config['start_date']} ~ {config['end_date']}**")
+        with col3:
+            st.info(f"💰 每期投入: **{config['currency']} {config['investment']:,}**")
+        
+        # Run button
+        st.markdown("---")
+        
+        if st.button("🚀 開始回測", type="primary", use_container_width=True):
+            if not config['selected_strategies']:
+                st.warning("⚠️ 請至少選擇一個策略")
+            else:
+                # Store results in session state
+                results = run_backtests(config)
+                st.session_state['results'] = results
+                st.session_state['currency'] = config['currency']
+        
+        # Display results
+        if 'results' in st.session_state and st.session_state['results']:
+            display_results(
+                st.session_state['results'],
+                st.session_state.get('currency', 'USD')
+            )
     
-    if st.button("🚀 開始回測", type="primary", use_container_width=True):
-        if not config['selected_strategies']:
-            st.warning("⚠️ 請至少選擇一個策略")
-        else:
-            # Store results in session state
-            results = run_backtests(config)
-            st.session_state['results'] = results
-            st.session_state['currency'] = config['currency']
+    with tab_robustness:
+        render_robustness_tests(config)
     
-    # Display results
-    if 'results' in st.session_state and st.session_state['results']:
-        display_results(
-            st.session_state['results'],
-            st.session_state.get('currency', 'USD')
-        )
+    with tab_sensitivity:
+        render_sensitivity_analysis(config)
     
     # Footer
     st.markdown("---")
@@ -481,3 +771,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

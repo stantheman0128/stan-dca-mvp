@@ -290,7 +290,7 @@ class BacktestEngine:
                 '卡爾馬比率': f"{metrics.calmar_ratio:.2f}",
                 '總投入': f"{metrics.total_invested:,.0f}",
                 '最終市值': f"{metrics.final_value:,.0f}",
-                '交易次數': metrics.total_trades,
+                '交易次數': f"{metrics.total_trades}",
                 '勝率 (%)': f"{metrics.win_rate:.1f}",
             }
         
