@@ -458,12 +458,21 @@ def render_robustness_tests(config: Dict[str, Any]):
     test_type = st.radio(
         "測試類型",
         options=["固定起始點測試", "Monte Carlo 模擬", "滾動窗口分析"],
-        horizontal=True
+        horizontal=True,
+        key="robustness_test_type"
     )
+    
+    # Show relevant settings BEFORE the button
+    if test_type == "Monte Carlo 模擬":
+        num_sims = st.slider("模擬次數", 50, 500, 200, step=50, key="mc_num_sims")
+        min_years = st.slider("最小投資年數", 1, 10, 3, key="mc_min_years")
+        max_years = st.slider("最大投資年數", 5, 20, 15, key="mc_max_years")
+    elif test_type == "滾動窗口分析":
+        window_years = st.slider("窗口大小 (年)", 1, 10, 3, key="rolling_window_years")
     
     data_loader = DataLoader()
     
-    if st.button("🔬 執行穩健性測試", type="primary"):
+    if st.button("🔬 執行穩健性測試", type="primary", key="run_robustness"):
         with st.spinner("正在下載數據..."):
             data = data_loader.download_data(
                 config['symbol'],
@@ -513,9 +522,12 @@ def render_robustness_tests(config: Dict[str, Any]):
             st.plotly_chart(fig, use_container_width=True)
             
         elif test_type == "Monte Carlo 模擬":
-            num_sims = st.slider("模擬次數", 50, 500, 200, step=50)
+            # Use the slider values from session state
+            num_sims_val = st.session_state.get('mc_num_sims', 200)
+            min_years_val = st.session_state.get('mc_min_years', 3)
+            max_years_val = st.session_state.get('mc_max_years', 15)
             
-            st.info(f"執行 {num_sims} 次隨機起始點模擬...")
+            st.info(f"執行 {num_sims_val} 次隨機起始點模擬...")
             progress = st.progress(0)
             
             def update_progress(current, total):
@@ -524,9 +536,9 @@ def render_robustness_tests(config: Dict[str, Any]):
             stats = analyzer.monte_carlo_simulation(
                 strategy=strategy,
                 market_data=data,
-                num_simulations=num_sims,
-                min_duration_years=3,
-                max_duration_years=15,
+                num_simulations=num_sims_val,
+                min_duration_years=min_years_val,
+                max_duration_years=max_years_val,
                 frequency=config['frequency'],
                 base_investment=config['investment'],
                 num_workers=4,
@@ -564,9 +576,9 @@ def render_robustness_tests(config: Dict[str, Any]):
                 st.error("模擬失敗")
                 
         elif test_type == "滾動窗口分析":
-            window_years = st.slider("窗口大小 (年)", 1, 10, 3)
+            window_years_val = st.session_state.get('rolling_window_years', 3)
             
-            st.info(f"使用 {window_years} 年滾動窗口分析...")
+            st.info(f"使用 {window_years_val} 年滾動窗口分析...")
             progress = st.progress(0)
             
             def update_progress(current, total):
@@ -575,7 +587,7 @@ def render_robustness_tests(config: Dict[str, Any]):
             results_df = analyzer.rolling_window_analysis(
                 strategy=strategy,
                 market_data=data,
-                window_years=window_years,
+                window_years=window_years_val,
                 step_months=3,
                 frequency=config['frequency'],
                 base_investment=config['investment'],
@@ -594,7 +606,7 @@ def render_robustness_tests(config: Dict[str, Any]):
             ))
             fig.add_hline(y=0, line_dash="dash", line_color="gray")
             fig.update_layout(
-                title=f"{window_years} 年滾動窗口報酬率",
+                title=f"{window_years_val} 年滾動窗口報酬率",
                 xaxis_title="窗口起始日期",
                 yaxis_title="報酬率 (%)",
                 height=400

@@ -135,15 +135,19 @@ class MetricsCalculator:
             metrics.average_cost = metrics.total_invested / metrics.total_shares
         
         # Risk metrics from equity curve
-        if 'return_pct' in equity_curve.columns:
-            returns = equity_curve['return_pct'].pct_change().dropna()
+        # Calculate period returns from equity values
+        if 'value' in equity_curve.columns:
+            values = equity_curve['value']
         else:
-            returns = equity_curve['value'].pct_change().dropna()
+            values = equity_curve['current_value'] if 'current_value' in equity_curve.columns else transactions['current_value']
         
-        metrics.max_drawdown, metrics.max_drawdown_duration = self.calculate_max_drawdown(
-            equity_curve['value'] if 'value' in equity_curve.columns 
-            else equity_curve['current_value']
-        )
+        # Calculate period-to-period returns
+        returns = values.pct_change().dropna()
+        
+        # Remove infinite values
+        returns = returns.replace([np.inf, -np.inf], np.nan).dropna()
+        
+        metrics.max_drawdown, metrics.max_drawdown_duration = self.calculate_max_drawdown(values)
         
         if len(returns) > 1:
             metrics.volatility = self.calculate_volatility(returns)
