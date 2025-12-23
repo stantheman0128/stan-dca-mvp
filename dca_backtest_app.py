@@ -25,6 +25,11 @@ st.markdown(
     .stDataFrame, .stDataEditor {
         font-family: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", "Heiti TC", "Noto Sans", sans-serif;
     }
+
+    /* 自訂指標（避免大數字被截斷時太「無情」） */
+    .metric-card { line-height: 1.15; }
+    .metric-label { color: rgba(49, 51, 63, 0.7); font-size: 0.95rem; margin-bottom: 0.25rem; }
+    .metric-value { font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -39,6 +44,31 @@ plt.rcParams["font.sans-serif"] = [
     "DejaVu Sans",
 ]
 plt.rcParams["axes.unicode_minus"] = False
+
+
+def _metric_font_size(value_text: str) -> str:
+    text = value_text.strip()
+    n = len(text)
+    if n <= 12:
+        return "2.25rem"
+    if n <= 16:
+        return "1.85rem"
+    if n <= 20:
+        return "1.55rem"
+    return "1.35rem"
+
+
+def render_metric(label: str, value: str) -> None:
+    font_size = _metric_font_size(value)
+    st.markdown(
+        f"""
+        <div class="metric-card">
+          <div class="metric-label">{label}</div>
+          <div class="metric-value" style="font-size: {font_size};">{value}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 st.title("📈 定期定額回測計算器")
 st.caption("模擬定期定額投資的歷史報酬表現")
@@ -126,15 +156,21 @@ if st.button("🚀 開始回測", type="primary", use_container_width=True):
         # 關鍵指標
         st.subheader("📊 回測結果")
         c1, c2, c3 = st.columns(3)
-        c1.metric("總投入", f"{currency} {result['total_cost']:,.0f}")
-        c2.metric("最終市值", f"{currency} {result['final_value']:,.0f}")
         sign = "+" if result['total_return'] >= 0 else ""
-        c3.metric("總報酬", f"{sign}{currency} {result['total_return']:,.0f}")
+        with c1:
+            render_metric("總投入", f"{currency} {result['total_cost']:,.0f}")
+        with c2:
+            render_metric("最終市值", f"{currency} {result['final_value']:,.0f}")
+        with c3:
+            render_metric("總報酬", f"{sign}{currency} {result['total_return']:,.0f}")
         
         c4, c5, c6 = st.columns(3)
-        c4.metric("報酬率", f"{sign}{result['return_pct']:.2f}%")
-        c5.metric("年化報酬率", f"{result['annualized']:.2f}%")
-        c6.metric("投資期間", f"{result['months']} 個月")
+        with c4:
+            render_metric("報酬率", f"{sign}{result['return_pct']:.2f}%")
+        with c5:
+            render_metric("年化報酬率", f"{result['annualized']:.2f}%")
+        with c6:
+            render_metric("投資期間", f"{result['months']} 個月")
         
         # 圖表
         df = result['df']
