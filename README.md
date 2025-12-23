@@ -114,4 +114,4 @@ MIT License
 
 ## 作者
 
-Stanley Chen
+Stan
